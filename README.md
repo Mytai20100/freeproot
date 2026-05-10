@@ -1,2 +1,2 @@
 # freeproot
-hmm a version custom proot for my freeroot
+hmm a version forked proot for my freeroot
