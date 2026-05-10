@@ -38,7 +38,7 @@ const char *get_temp_directory()
 		return temp_directory;
 	}
 
-	temp_directory = talloc_strdup(talloc_autofree_context(), tmp);
+	temp_directory = talloc_strdup(NULL, tmp);
 	if (temp_directory == NULL)
 		temp_directory = tmp;
 	else
@@ -289,7 +289,7 @@ char *create_temp_name(TALLOC_CTX *context, const char *prefix)
 	char *name;
 
 	if (context == NULL)
-		context = talloc_autofree_context();
+		context = NULL;
 
 	name = talloc_asprintf(context, "%s/%s-%d-XXXXXX", temp_directory, prefix, getpid());
 	if (name == NULL) {

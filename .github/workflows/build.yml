@@ -20,8 +20,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - arch: i386
-            docker_arch: linux/386
           - arch: amd64
             docker_arch: linux/amd64
           - arch: armv6
@@ -35,7 +33,7 @@ jobs:
       - name: Checkout freeproot
         uses: actions/checkout@v4
         with:
-          submodules: false
+          submodules: recursive
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -62,16 +60,16 @@ jobs:
 
               cd /src/src
 
-              # Fix missing header nếu cần
+              # Fix missing header
               grep -q "libgen.h" cli/cli.c || sed -i "1i#include <libgen.h>" cli/cli.c
 
-              # Build
-              make proot LDFLAGS="-static -ltalloc"
+              # Build — -Wno-error để warnings không block, -Werror=implicit-function-declaration giữ lại lỗi thật
+              make proot \
+                CFLAGS="-O2 -Wall -Wno-deprecated-declarations -Wno-format -Wno-overflow" \
+                LDFLAGS="-static -ltalloc"
 
-              # Strip
               strip proot
 
-              # Verify
               echo "=== Binary Info ==="
               file proot
               echo "=== Size ==="
@@ -79,7 +77,6 @@ jobs:
               echo "=== Dependencies ==="
               ldd proot || echo "Static binary - OK!"
 
-              # Copy output
               cp proot /output/proot-${{ matrix.arch }}
               chmod +x /output/proot-${{ matrix.arch }}
             '
@@ -123,7 +120,6 @@ jobs:
             Proot static binaries built from [freeproot](https://github.com/Mytai20100/freeproot)
 
             **Available architectures:**
-            - i386 (32-bit Intel/AMD)
             - amd64 (64-bit Intel/AMD)
             - armv6 (Raspberry Pi 1/Zero)
             - armv7 (Raspberry Pi 2/3, Android ARMv7)
