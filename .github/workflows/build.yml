@@ -35,7 +35,7 @@ jobs:
       - name: Checkout freeproot
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
