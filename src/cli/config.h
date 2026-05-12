@@ -8,14 +8,16 @@
 #include "cli/cli.h"
 
 #define PROOT_CONFIG_MAX_BINDINGS 64
+#define PROOT_CONFIG_MAX_COMMAND_ARGS 64
 
 typedef struct {
 	char  rootfs[PATH_MAX];
 	char  cwd[PATH_MAX];
-	char  command[PATH_MAX];
+	char *command_argv[PROOT_CONFIG_MAX_COMMAND_ARGS]; /* tokenised command */
+	int   nb_command_args;
 	char *bindings[PROOT_CONFIG_MAX_BINDINGS];
 	int   nb_bindings;
-	bool  fake_root;
+	bool  root;             
 	bool  kill_on_exit;
 	int   verbose;          /* -1 = not set */
 } ProotConfig;

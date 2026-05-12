@@ -483,13 +483,19 @@ int main(int argc, char *const argv[])
 	/* --- Build a synthetic argv if user gave no command and yml has one --- */
 	char *const *effective_argv = argv;
 	int effective_argc = argc;
-	char *synthetic[3]; /* proot + command + NULL */
-	if (yml_loaded && yml_cfg.command[0] != '\0' && argc == 1) {
+	/*
+	 * synthetic = { argv[0], cmd_arg0, cmd_arg1, ..., NULL }
+	 * Size: 1 (proot) + PROOT_CONFIG_MAX_COMMAND_ARGS + 1 (NULL sentinel)
+	 */
+	char *synthetic[1 + PROOT_CONFIG_MAX_COMMAND_ARGS + 1];
+	if (yml_loaded && yml_cfg.nb_command_args > 0 && argc == 1) {
+		int i;
 		synthetic[0] = argv[0];
-		synthetic[1] = yml_cfg.command;
-		synthetic[2] = NULL;
+		for (i = 0; i < yml_cfg.nb_command_args; i++)
+			synthetic[1 + i] = yml_cfg.command_argv[i];
+		synthetic[1 + yml_cfg.nb_command_args] = NULL;
 		effective_argv = (char *const *)synthetic;
-		effective_argc = 2;
+		effective_argc = 1 + yml_cfg.nb_command_args;
 	}
 
 	/* Pre-configure the first tracee.  */

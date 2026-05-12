@@ -13,10 +13,16 @@
  *     - /proc
  *     - /sys
  *     - /host/path:/guest/path
- *   fake_root:  true                   → -0
+ *   root:       true                   → -0  (formerly fake_root)
  *   kill_on_exit: true                 → --kill-on-exit
  *   verbose:    0                      → -v
  *   command:    /bin/bash              → default command (if none given on CLI)
+ *              Inline form:  command: /bin/bash -c "echo hi"
+ *              List form:
+ *                command:
+ *                  - /bin/bash
+ *                  - -c
+ *                  - echo hi
  */
 
 #include <stdio.h>
@@ -31,13 +37,7 @@
 #include "cli/note.h"
 #include "path/binding.h"
 
-/* Config file path — override via env PROOT_CONFIG */
 #define DEFAULT_CONFIG_PATH "/usr/local/.config/proot.yml"
-
-/* ------------------------------------------------------------------ */
-/* Tiny YAML helpers — no external lib needed for this simple format   */
-/* ------------------------------------------------------------------ */
-
 static char *trim(char *s)
 {
 	/* left trim */
@@ -66,16 +66,43 @@ static const char *match_key(const char *line, const char *key)
 	return p;
 }
 
-/* ------------------------------------------------------------------ */
-/* Public API                                                          */
-/* ------------------------------------------------------------------ */
+static void tokenise_command(ProotConfig *cfg, const char *s)
+{
+	/* Work on a mutable copy */
+	char *buf = strdup(s);
+	if (!buf)
+		return;
 
-/**
- * load_yml_config - parse proot.yml and fill *cfg.
- *
- * Returns 0 on success, -1 if file not found (non-fatal),
- * -2 on parse error.
- */
+	char *p = buf;
+	while (*p && cfg->nb_command_args < PROOT_CONFIG_MAX_COMMAND_ARGS - 1) {
+		/* skip leading whitespace */
+		while (*p == ' ' || *p == '\t') p++;
+		if (*p == '\0')
+			break;
+
+		char *token_start;
+		char quote = '\0';
+
+		if (*p == '"' || *p == '\'') {
+			quote = *p++;
+			token_start = p;
+			/* advance until matching close-quote */
+			while (*p && *p != quote) p++;
+			if (*p == quote) *p++ = '\0';
+		} else {
+			token_start = p;
+			/* advance until whitespace */
+			while (*p && *p != ' ' && *p != '\t') p++;
+			if (*p) *p++ = '\0';
+		}
+
+		if (token_start[0] != '\0')
+			cfg->command_argv[cfg->nb_command_args++] = strdup(token_start);
+	}
+	cfg->command_argv[cfg->nb_command_args] = NULL;
+	free(buf);
+}
+
 int load_yml_config(ProotConfig *cfg)
 {
 	const char *path = getenv("PROOT_CONFIG");
@@ -91,6 +118,7 @@ int load_yml_config(ProotConfig *cfg)
 
 	char line[PATH_MAX + 64];
 	bool in_bindings = false;
+	bool in_command  = false;
 
 	while (fgets(line, sizeof(line), f)) {
 		/* strip newline */
@@ -99,6 +127,19 @@ int load_yml_config(ProotConfig *cfg)
 		/* skip blanks and comments */
 		if (p[0] == '\0' || p[0] == '#')
 			continue;
+
+		/* command list item  (- arg) */
+		if (in_command) {
+			if (p[0] == '-' && (p[1] == ' ' || p[1] == '\t')) {
+				char *val = trim(p + 2);
+				if (cfg->nb_command_args < PROOT_CONFIG_MAX_COMMAND_ARGS - 1)
+					cfg->command_argv[cfg->nb_command_args++] = strdup(val);
+				continue;
+			} else {
+				in_command = false;
+				/* fall through to parse current line */
+			}
+		}
 
 		/* binding list item */
 		if (in_bindings) {
@@ -120,9 +161,15 @@ int load_yml_config(ProotConfig *cfg)
 		} else if ((v = match_key(p, "cwd"))) {
 			strncpy(cfg->cwd, v, PATH_MAX - 1);
 		} else if ((v = match_key(p, "command"))) {
-			strncpy(cfg->command, v, PATH_MAX - 1);
-		} else if ((v = match_key(p, "fake_root"))) {
-			cfg->fake_root = (strncmp(v, "true", 4) == 0);
+			if (v[0] == '\0' || v[0] == '#') {
+				/* bare "command:" → expect list items below */
+				in_command = true;
+			} else {
+				/* inline "command: /bin/bash -c 'echo hi'" */
+				tokenise_command(cfg, v);
+			}
+		} else if ((v = match_key(p, "root"))) {
+			cfg->root = (strncmp(v, "true", 4) == 0);
 		} else if ((v = match_key(p, "kill_on_exit"))) {
 			cfg->kill_on_exit = (strncmp(v, "true", 4) == 0);
 		} else if ((v = match_key(p, "verbose"))) {
@@ -133,17 +180,13 @@ int load_yml_config(ProotConfig *cfg)
 		/* unknown keys are silently ignored */
 	}
 
+	/* Terminate command_argv list */
+	cfg->command_argv[cfg->nb_command_args] = NULL;
+
 	fclose(f);
 	return 0;
 }
 
-/**
- * apply_yml_config - push config values into the tracee using the same
- * handler functions that CLI parsing uses, so behaviour is identical.
- *
- * Must be called BEFORE parse_config() so that explicit CLI flags can
- * still override anything set here.
- */
 void apply_yml_config(Tracee *tracee, const Cli *cli, const ProotConfig *cfg)
 {
 	int i;
@@ -157,7 +200,7 @@ void apply_yml_config(Tracee *tracee, const Cli *cli, const ProotConfig *cfg)
 	for (i = 0; i < cfg->nb_bindings; i++)
 		handle_config_b(tracee, cli, cfg->bindings[i]);
 
-	if (cfg->fake_root)
+	if (cfg->root)
 		handle_config_0(tracee, cli);
 
 	if (cfg->kill_on_exit)
@@ -166,5 +209,5 @@ void apply_yml_config(Tracee *tracee, const Cli *cli, const ProotConfig *cfg)
 	if (cfg->verbose >= 0)
 		handle_config_v(tracee, cli, cfg->verbose);
 
-	/* cfg->command is consumed by the caller (main) if argv has no cmd */
+	/* cfg->command_argv is consumed by the caller (main) if argv has no cmd */
 }
